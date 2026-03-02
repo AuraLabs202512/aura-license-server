@@ -1,45 +1,57 @@
 const express = require("express");
-const fs = require("fs");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-app.post("/validate", (req, res) => {
-    const { license, hwid } = req.body;
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
-    if (!license || !hwid) {
-        return res.json({ status: "invalid" });
-    }
+app.post("/validate", async (req, res) => {
+  const { license, hwid } = req.body;
 
-    let licenses = JSON.parse(fs.readFileSync("licenses.json"));
-
-    if (!licenses[license]) {
-        return res.json({ status: "invalid" });
-    }
-
-    if (!licenses[license].active) {
-        return res.json({ status: "disabled" });
-    }
-
-    if (licenses[license].hwid === "") {
-        licenses[license].hwid = hwid;
-        fs.writeFileSync("licenses.json", JSON.stringify(licenses, null, 2));
-        return res.json({ status: "valid" });
-    }
-
-    if (licenses[license].hwid === hwid) {
-        return res.json({ status: "valid" });
-    }
-
+  if (!license || !hwid) {
     return res.json({ status: "invalid" });
+  }
+
+  const { data, error } = await supabase
+    .from("licenses")
+    .select("*")
+    .eq("license_key", license)
+    .single();
+
+  if (error || !data) {
+    return res.json({ status: "invalid" });
+  }
+
+  if (!data.active) {
+    return res.json({ status: "disabled" });
+  }
+
+  if (!data.hwid) {
+    await supabase
+      .from("licenses")
+      .update({ hwid: hwid })
+      .eq("license_key", license);
+
+    return res.json({ status: "valid" });
+  }
+
+  if (data.hwid === hwid) {
+    return res.json({ status: "valid" });
+  }
+
+  return res.json({ status: "invalid" });
 });
 
 app.get("/", (req, res) => {
-    res.send("Aura License Server Running");
+  res.send("Aura License Server Running");
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
